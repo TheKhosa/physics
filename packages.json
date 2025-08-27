@@ -1,0 +1,13 @@
+{
+  "name": "multiplayer-physics-powder-game",
+  "version": "1.0.0",
+  "description": "A server-authoritative multiplayer physics simulation game like Powder Toy.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
