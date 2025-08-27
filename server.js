@@ -13,6 +13,9 @@ class Particle {
     constructor(type) {
         this.type = type;
         this.updatedThisTick = false;
+        // New properties for complex interactions
+        this.life = -1; // -1 is infinite. Used for fire.
+        this.pressure = 0;
     }
 }
 
@@ -23,22 +26,44 @@ const setPixel = (x, y, particle, changes) => {
     } else {
         world.set(key, particle);
     }
+    // Track the change to broadcast to clients
     changes.push({ x, y, particle });
 };
 
 const getPixel = (x, y) => world.get(getPixelKey(x, y));
 
-const TICK_RATE = 20;
+const TICK_RATE = 20; // Updates per second
 setInterval(() => {
     const changes = [];
-    world.forEach(p => p.updatedThisTick = false);
+    
+    // Reset update flags and pressure for this tick
+    world.forEach(p => { p.updatedThisTick = false; p.pressure = 0; });
+    
+    // Use a copy of keys to avoid issues with modification during iteration
     const keys = Array.from(world.keys());
 
+    // --- PRESSURE CALCULATION PHASE ---
+    for (const key of keys) {
+        const [x, y] = key.split(',').map(Number);
+        let pressure = 0;
+        let currentY = y - 1;
+        // Check column above for particles
+        while(getPixel(x, currentY)) {
+            pressure++;
+            currentY--;
+        }
+        const pixel = getPixel(x,y);
+        if(pixel) pixel.pressure = pressure;
+    }
+    
+    // --- PHYSICS & INTERACTION PHASE ---
     for (const key of keys) {
         const [x, y] = key.split(',').map(Number);
         const pixel = getPixel(x, y);
+
         if (!pixel || pixel.updatedThisTick) continue;
 
+        // --- Element-specific logic ---
         if (pixel.type === 'sand') {
             const down = getPixel(x, y + 1);
             if (!down) {
@@ -71,23 +96,75 @@ setInterval(() => {
                 }
             }
         }
+        else if (pixel.type === 'plant') {
+            let waterNearby = false;
+            // Check adjacent cells for water
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const neighbor = getPixel(x + dx, y + dy);
+                    if (neighbor && neighbor.type === 'water') {
+                        waterNearby = true;
+                        break;
+                    }
+                }
+                if(waterNearby) break;
+            }
+
+            // If water is nearby, small chance to grow
+            if (waterNearby && Math.random() < 0.01) {
+                const growX = x + Math.floor(Math.random() * 3) - 1;
+                const growY = y + Math.floor(Math.random() * 3) - 1;
+                if (!getPixel(growX, growY)) {
+                    setPixel(growX, growY, new Particle('plant'), changes);
+                }
+            }
+        }
+        else if (pixel.type === 'fire') {
+            pixel.life--;
+            if (pixel.life <= 0) {
+                setPixel(x, y, null, changes);
+                continue;
+            }
+            
+            // Spread to neighbors
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const neighbor = getPixel(x + dx, y + dy);
+                    if (neighbor) {
+                        if (neighbor.type === 'plant' && Math.random() < 0.25) {
+                            const fireParticle = new Particle('fire');
+                            fireParticle.life = Math.floor(Math.random() * 20) + 40; // New fire life
+                            setPixel(x + dx, y + dy, fireParticle, changes);
+                        } else if (neighbor.type === 'water' && Math.random() < 0.1) {
+                            setPixel(x, y, null, changes); // Doused by water
+                        }
+                    }
+                }
+            }
+        }
     }
 
+    // Broadcast the collected changes to all clients
     if (changes.length > 0) {
         io.emit('worldUpdate', changes);
     }
 }, 1000 / TICK_RATE);
 
+// --- SERVER-SIDE NETWORKING ---
 io.on('connection', (socket) => {
-    console.log('[SERVER] A user connected.');
+    console.log('A user connected.');
+    
+    // When a new user joins, send them the entire world state
     const fullWorld = Array.from(world.entries()).map(([key, particle]) => {
         const [x, y] = key.split(',').map(Number);
         return { x, y, particle };
     });
     socket.emit('fullWorld', fullWorld);
 
+    // Listen for drawing actions from clients
     socket.on('clientDraw', (data) => {
-        console.log(`[SERVER] Received clientDraw event for element: ${data.element}`);
         const changes = [];
         const { x, y, radius, element } = data;
         for (let i = -radius; i <= radius; i++) {
@@ -95,28 +172,42 @@ io.on('connection', (socket) => {
                 if (Math.sqrt(i*i + j*j) <= radius) {
                     const newX = x + i;
                     const newY = y + j;
-                    // SIMPLIFIED LOGIC: Always allow drawing/overwriting.
-                    setPixel(newX, newY, new Particle(element), changes);
+
+                    // Handle eraser as a special case to delete particles
+                    if (element === 'eraser') {
+                        if (getPixel(newX, newY)) { // only delete if something is there
+                           setPixel(newX, newY, null, changes);
+                        }
+                    } else {
+                        // Create the new particle
+                        const particle = new Particle(element);
+                        if (element === 'fire') {
+                            particle.life = Math.floor(Math.random() * 50) + 50; // Initial fire life
+                        }
+                        setPixel(newX, newY, particle, changes);
+                    }
                 }
             }
         }
+        // Immediately broadcast newly drawn pixels so drawing feels responsive
         if (changes.length > 0) {
-            console.log(`[SERVER] Broadcasting worldUpdate with ${changes.length} changes.`);
             io.emit('worldUpdate', changes);
         }
     });
 
     socket.on('disconnect', () => {
-        console.log('[SERVER] User disconnected.');
+        console.log('User disconnected.');
     });
 });
 
+
+// --- CLIENT-SIDE HTML AND JAVASCRIPT ---
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Multiplayer Physics Powder Game</title>
+        <title>Expanded Physics Powder Game</title>
         <style>
           body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; user-select: none; }
           #game-canvas { border: 1px solid black; cursor: crosshair; background-color: #222; }
@@ -138,6 +229,9 @@ app.get('/', (req, res) => {
             <option value="sand">Sand</option>
             <option value="water">Water</option>
             <option value="wall">Wall</option>
+            <option value="plant">Plant</option>
+            <option value="fire">Fire</option>
+            <option value="eraser" style="color:red; font-weight:bold;">ERASER</option>
           </select>
           <label for="brushSize" style="margin-left: 15px;">Brush:</label>
           <input type="range" id="brushSize" min="1" max="10" value="3">
@@ -188,9 +282,15 @@ app.get('/', (req, res) => {
 
                 for (const [key, pixel] of localWorld.entries()) {
                     const [x, y] = key.split(',').map(Number);
+                    // Updated renderer for new elements
                     if (pixel.type === 'sand') context.fillStyle = '#c2b280';
                     else if (pixel.type === 'wall') context.fillStyle = '#888';
                     else if (pixel.type === 'water') context.fillStyle = '#4466ff';
+                    else if (pixel.type === 'plant') context.fillStyle = '#00ab41';
+                    else if (pixel.type === 'fire') {
+                        const colors = ['#ff4000', '#ff8000', '#ffbf00'];
+                        context.fillStyle = colors[Math.floor(Math.random() * colors.length)];
+                    }
                     context.fillRect(x, y, 1, 1);
                 }
                 context.restore();
@@ -218,7 +318,6 @@ app.get('/', (req, res) => {
             const handleDrawing = (e) => {
                 if (!isDrawing) return;
                 const pos = toWorldCoords(e.offsetX, e.offsetY);
-                console.log(\`[CLIENT] Sending clientDraw event at (\${pos.x}, \${pos.y})\`);
                 socket.emit('clientDraw', { 
                     x: pos.x, y: pos.y, 
                     radius: brushSize, 
@@ -257,7 +356,6 @@ app.get('/', (req, res) => {
             });
 
             socket.on('worldUpdate', (changes) => {
-                console.log(\`[CLIENT] Received worldUpdate with \${changes.length} changes.\`);
                 for (const change of changes) {
                     const key = getPixelKey(change.x, change.y);
                     if (change.particle === null) {
@@ -275,5 +373,5 @@ app.get('/', (req, res) => {
 });
 
 http.listen(port, () => {
-  console.log(`[SERVER] Server is running on http://localhost:${port}`);
+  console.log(`Server is running on http://localhost:${port}`);
 });
