@@ -8,50 +8,56 @@ const port = process.env.PORT || 3000;
 const AMBIENT_TEMP = 20;
 const MAX_TEMP = 10000;
 
-// --- 1. DATA-DRIVEN ELEMENT DEFINITIONS ---
+// --- 1. THE EXTENSIVE ELEMENT LIBRARY ---
 const ELEMENTS = {
     // Special
-    "NONE": { color: "#000000" },
+    "NONE": { color: "#000" },
     "ERAS": { name: "Eraser", menu: "Tools" },
     
     // Solids
-    "WALL": { name: "Wall", menu: "Solids", state: "solid", density: Infinity, color: "#888", conductivity: 0.01, heatConduct: 5 },
-    "GLAS": { name: "Glass", menu: "Solids", state: "solid", density: 2.5, color: "rgba(180, 210, 210, 0.3)", conductivity: 0.05, heatConduct: 2, breakable: 10 },
-    "PLNT": { name: "Plant", menu: "Solids", state: "solid", density: 1.2, color: "#00ab41", conductivity: 0.2, heatConduct: 15, flammable: 80 },
+    "WALL": { name: "Wall", menu: "Solids", state: "solid", density: Infinity, color: "#888", heatConduct: 5 },
+    "GLAS": { name: "Glass", menu: "Solids", state: "solid", density: 2.5, color: "rgba(180, 210, 210, 0.3)", heatConduct: 2 },
+    "PLNT": { name: "Plant", menu: "Solids", state: "solid", density: 1.2, color: "#00ab41", heatConduct: 15, flammable: 80 },
+    "INSL": { name: "Insulator", menu: "Solids", state: "solid", density: 1.5, color: "#404040", heatConduct: 0.1, conductivity: 0 },
+    "FILT": { name: "Filter", menu: "Solids", state: "solid", density: 1.8, color: "#d3d3d3", heatConduct: 10 },
     
     // Powders
-    "SAND": { name: "Sand", menu: "Powders", state: "powder", density: 1.5, color: "#c2b280", conductivity: 0.1, heatConduct: 20 },
-    "STNE": { name: "Stone", menu: "Powders", state: "powder", density: 2.4, color: "#8c8c8c", conductivity: 0.05, heatConduct: 8 },
-    "COAL": { name: "Coal", menu: "Powders", state: "powder", density: 1.1, color: "#303030", conductivity: 0.1, heatConduct: 25, flammable: 250 },
+    "SAND": { name: "Sand", menu: "Powders", state: "powder", density: 1.5, color: "#c2b280", heatConduct: 20 },
+    "STNE": { name: "Stone", menu: "Powders", state: "powder", density: 2.4, color: "#8c8c8c", heatConduct: 8 },
+    "COAL": { name: "Coal", menu: "Powders", state: "powder", density: 1.1, color: "#303030", heatConduct: 25, flammable: 250, conductivity: 1 },
     
     // Liquids
-    "WATR": { name: "Water", menu: "Liquids", state: "liquid", density: 1, color: "#4466ff", conductivity: 0.8, heatConduct: 90, boilPoint: 100, boilInto: "STEA" },
-    "OIL": { name: "Oil", menu: "Liquids", state: "liquid", density: 0.8, color: "#8b4513", conductivity: 0.3, heatConduct: 40, flammable: 150 },
-    "LAVA": { name: "Lava", menu: "Liquids", state: "liquid", density: 2.8, color: "#ff4500", temperature: 1200, conductivity: 0.5, heatConduct: 60 },
+    "WATR": { name: "Water", menu: "Liquids", state: "liquid", density: 1, color: "#4466ff", heatConduct: 90, boilPoint: 100, boilInto: "STEA", conductivity: 5 },
+    "OIL": { name: "Oil", menu: "Liquids", state: "liquid", density: 0.8, color: "#8b4513", heatConduct: 40, flammable: 150 },
+    "LAVA": { name: "Lava", menu: "Liquids", state: "liquid", density: 2.8, color: "#ff4500", temperature: 1200, heatConduct: 60 },
+    "ACID": { name: "Acid", menu: "Liquids", state: "liquid", density: 1.2, color: "#80ff00", heatConduct: 70 },
 
     // Gases
-    "GAS": { name: "Gas", menu: "Gases", state: "gas", density: -0.6, color: "#aaccaa", conductivity: 0.1, heatConduct: 20 },
-    "STEA": { name: "Steam", menu: "Gases", state: "gas", density: -0.5, color: "#a0a0a0", temperature: 110, conductivity: 0.2, heatConduct: 30 },
+    "GAS": { name: "Gas", menu: "Gases", state: "gas", density: -0.6, color: "#aaccaa", heatConduct: 20 },
+    "STEA": { name: "Steam", menu: "Gases", state: "gas", density: -0.5, color: "#a0a0a0", temperature: 110, heatConduct: 30 },
+    "SMKE": { name: "Smoke", menu: "Gases", state: "gas", density: -0.4, color: "#606060", life: 150, heatConduct: 15 },
 
-    // Energy
-    "FIRE": { name: "Fire", menu: "Energy", state: "gas", density: -0.5, color: "#ff8000", temperature: 1000, life: 50, flammable: 0 }
+    // Energy & Special
+    "FIRE": { name: "Fire", menu: "Energy", state: "gas", density: -0.5, color: "#ff8000", temperature: 1000, life: 50 },
+    "SPRK": { name: "Spark", menu: "Energy", state: "energy", color: "#ffff00", life: 4 },
+    "LIGH": { name: "Lightning", menu: "Energy", state: "energy", color: "#f0f8ff", life: 6 },
+    "PHOT": { name: "Photon", menu: "Energy", state: "energy", color: "#fff" },
+    "NEUT": { name: "Neutron", menu: "Energy", state: "energy", color: "#ff00ff", life: 100 }
 };
 
-// --- 2. ADVANCED PARTICLE & WORLD ENGINE ---
+// --- 2. THE REWORKED ENGINE ---
 const world = new Map();
 const getPixelKey = (x, y) => `${x},${y}`;
 
 class Particle {
-    constructor(type) {
+    constructor(type, ctype) {
         this.type = type;
-        this.vx = 0;
-        this.vy = 0;
-        
         const def = ELEMENTS[type];
         this.temperature = def.temperature || AMBIENT_TEMP;
-        
-        this.props = {};
-        if(def.life) this.props.life = def.life + Math.floor(Math.random()*10);
+        this.life = def.life ? def.life + Math.floor(Math.random()*10) : -1;
+        // ctype is a flexible property, often for color (photons) or type variations
+        this.ctype = ctype || 0; 
+        this.vx = 0; this.vy = 0;
     }
 }
 
@@ -61,130 +67,129 @@ const setPixel = (x, y, particle, changes) => {
     else { world.set(key, particle); }
     if(changes) changes.push({ x, y, particle });
 };
-
 const getPixel = (x, y) => world.get(getPixelKey(x, y));
-
 const swapPixels = (x1, y1, p1, x2, y2, p2, changes) => {
     setPixel(x1, y1, p2, changes);
     setPixel(x2, y2, p1, changes);
-}
+};
+// Check neighbors for a specific type
+const checkNeighbors = (x, y, type) => {
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        if (getPixel(x + dx, y + dy)?.type === type) return true;
+    }
+    return false;
+};
 
-// --- 3. THE RE-ARCHITECTED SERVER TICK ---
-const TICK_RATE = 20;
+// --- 3. THE MULTI-PHASE SERVER TICK ---
+const TICK_RATE = 30;
 setInterval(() => {
     const changes = [];
     const keys = Array.from(world.keys());
 
-    // --- PHASE 1: ELEMENT-SPECIFIC UPDATES (before movement) ---
+    // --- MOVEMENT PHASE ---
     for (const key of keys) {
         const [x, y] = key.split(',').map(Number);
         const p = getPixel(x, y);
         if (!p) continue;
         const def = ELEMENTS[p.type];
 
-        if (p.type === 'FIRE') {
-            p.props.life--;
-            if (p.props.life <= 0 || Math.random() < 0.05) {
-                setPixel(x, y, null, changes);
-                continue;
-            }
-        }
-        if (p.type === 'PLNT') {
-            // Grow if touching water, but not into water
-            const neighbor = getPixel(x, y + 1);
-            if(neighbor && neighbor.type === 'WATR' && Math.random() < 0.01) {
-                const target = getPixel(x, y - 1);
-                if (!target) setPixel(x, y - 1, new Particle('PLNT'), changes);
-            }
-        }
-    }
-
-    // --- PHASE 2: GRAVITY & MOVEMENT ---
-    for (const key of keys) {
-        const [x, y] = key.split(',').map(Number);
-        const p = getPixel(x, y);
-        if (!p) continue;
-        const def = ELEMENTS[p.type];
-
-        if (def.state === "powder" || def.state === "liquid") {
+        // Movement is now state-driven
+        if (def.state === "powder") {
             const down = getPixel(x, y + 1);
-            if (!down) {
-                swapPixels(x, y, p, x, y + 1, down, changes);
-            } else {
-                const downDef = ELEMENTS[down.type];
-                if (def.density > downDef.density) {
-                    swapPixels(x, y, p, x, y + 1, down, changes);
-                } else if (def.state === "liquid") { // Liquids spread
-                    const dir = Math.random() < 0.5 ? 1 : -1;
-                    const side = getPixel(x + dir, y);
-                    if (!side) {
-                        swapPixels(x, y, p, x + dir, y, side, changes);
-                    }
-                }
+            if (!down) { swapPixels(x, y, p, x, y + 1, down, changes); }
+            else {
+                const dir = Math.random() < 0.5 ? 1 : -1;
+                const downSide = getPixel(x + dir, y + 1);
+                if (!downSide) { swapPixels(x, y, p, x + dir, y + 1, downSide, changes); }
+            }
+        } else if (def.state === "liquid") {
+            const down = getPixel(x, y + 1);
+            if (!down) { swapPixels(x, y, p, x, y + 1, down, changes); }
+            else {
+                const dir = Math.random() < 0.5 ? 1 : -1;
+                const side = getPixel(x + dir, y);
+                if (!side) { swapPixels(x, y, p, x + dir, y, side, changes); }
             }
         } else if (def.state === "gas") {
-            const up = getPixel(x, y - 1);
-            if (!up) {
-                swapPixels(x, y, p, x, y - 1, up, changes);
-            } else {
-                const upDef = ELEMENTS[up.type];
-                if (def.density > upDef.density) {
-                    swapPixels(x, y, p, x, y - 1, up, changes);
-                } else {
-                    const dir = Math.random() < 0.5 ? 1 : -1;
-                    const side = getPixel(x + dir, y);
-                    if (!side) {
-                        swapPixels(x, y, p, x + dir, y, side, changes);
-                    }
-                }
-            }
+            const dirX = Math.floor(Math.random() * 3) - 1;
+            const dirY = Math.floor(Math.random() * 3) - 1;
+            const target = getPixel(x + dirX, y + dirY);
+            if (!target) { swapPixels(x, y, p, x + dirX, y + dirY, target, changes); }
+        } else if (p.type === 'PHOT') {
+             const nextX = x + p.vx;
+             const nextY = y + p.vy;
+             const target = getPixel(nextX, nextY);
+             if(!target) {
+                 swapPixels(x, y, p, nextX, nextY, target, changes);
+             } else {
+                 if(target.type === 'WALL') { p.vx *= -1; p.vy *= -1; }
+                 else if(target.type === 'GLAS') { /* Pass through */ }
+                 else if(target.type === 'FILT') {
+                     // Simple filter logic: absorb some color channels
+                     const r = (p.ctype >> 16) & 0xFF;
+                     const g = (p.ctype >> 8) & 0xFF;
+                     const b = p.ctype & 0xFF;
+                     p.ctype = (g << 16) | (b << 8) | r; // Cycle colors
+                 }
+                 else { setPixel(x, y, null, changes); } // Absorbed
+             }
         }
     }
 
-    // --- PHASE 3: HEAT TRANSFER ---
-    const tempChanges = new Map();
+    // --- INTERACTION & STATE CHANGE PHASE ---
     for (const key of keys) {
         const [x, y] = key.split(',').map(Number);
         const p = getPixel(x, y);
         if (!p) continue;
-
-        let totalTempDelta = 0;
         const def = ELEMENTS[p.type];
-        
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
+
+        // Handle life
+        if (p.life > 0) p.life--;
+        if (p.life === 0) { setPixel(x, y, null, changes); continue; }
+
+        // Interactions
+        if (p.type === 'FIRE') {
+            p.temperature = def.temperature;
+            if(Math.random() < 0.2) setPixel(x, y-1, new Particle('SMKE'), changes);
+        }
+        if (p.type === 'LAVA') {
+            if(checkNeighbors(x,y,'WATR')) {
+                setPixel(x,y, new Particle('STNE'), changes);
+                setPixel(x,y-1, new Particle('STEA'), changes);
+            }
+        }
+        if (p.type === 'ACID') {
+            for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
                 if (dx === 0 && dy === 0) continue;
                 const neighbor = getPixel(x + dx, y + dy);
-                if (neighbor) {
-                    const neighborDef = ELEMENTS[neighbor.type];
-                    const avgConductivity = (def.heatConduct + neighborDef.heatConduct) / 2;
-                    totalTempDelta += (neighbor.temperature - p.temperature) * (avgConductivity / 200);
+                if (neighbor && neighbor.type !== 'GLAS' && neighbor.type !== 'WALL' && neighbor.type !== 'ACID') {
+                    setPixel(x + dx, y + dy, null, changes);
                 }
             }
         }
-        // Cooling to ambient
-        totalTempDelta += (AMBIENT_TEMP - p.temperature) * (def.conductivity / 10);
-        tempChanges.set(key, totalTempDelta);
-    }
-    for (const [key, delta] of tempChanges.entries()) {
-        const p = world.get(key);
-        if(p) {
-            p.temperature = Math.min(MAX_TEMP, p.temperature + delta);
+        
+        // Heat Transfer & State Changes from Heat
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+            if (dx === 0 && dy === 0) continue;
+            const neighbor = getPixel(x + dx, y + dy);
+            if (neighbor) {
+                const neighborDef = ELEMENTS[neighbor.type];
+                // Transfer heat
+                const tempDiff = p.temperature - neighbor.temperature;
+                if (tempDiff > 0) {
+                    const heatToTransfer = tempDiff * (def.heatConduct / 100);
+                    p.temperature -= heatToTransfer;
+                    neighbor.temperature += heatToTransfer;
+                }
+                // Check for ignition
+                if (neighborDef.flammable && neighbor.temperature > neighborDef.flammable) {
+                    setPixel(x + dx, y + dy, new Particle('FIRE'), changes);
+                }
+            }
         }
-    }
-
-    // --- PHASE 4: STATE CHANGES ---
-    for (const key of keys) {
-        const [x, y] = key.split(',').map(Number);
-        const p = getPixel(x, y);
-        if (!p) continue;
-        const def = ELEMENTS[p.type];
-
         if (def.boilPoint && p.temperature >= def.boilPoint) {
             setPixel(x, y, new Particle(def.boilInto), changes);
-        }
-        else if (def.flammable && p.temperature >= def.flammable) {
-            setPixel(x, y, new Particle('FIRE'), changes);
         }
     }
 
@@ -215,14 +220,20 @@ io.on('connection', (socket) => {
                     if (element === 'ERAS') {
                         if (getPixel(newX, newY)) setPixel(newX, newY, null, changes);
                     } else {
-                        setPixel(newX, newY, new Particle(element), changes);
+                        let p = new Particle(element);
+                        // Special creation logic
+                        if (element === 'PHOT') {
+                            const angle = Math.random() * 2 * Math.PI;
+                            p.vx = Math.cos(angle);
+                            p.vy = Math.sin(angle);
+                            p.ctype = 0xFFFFFF; // White light
+                        }
+                        setPixel(newX, newY, p, changes);
                     }
                 }
             }
         }
-        if (changes.length > 0) {
-            io.emit('worldUpdate', changes);
-        }
+        if (changes.length > 0) { io.emit('worldUpdate', changes); }
     });
     socket.on('disconnect', () => { console.log('User disconnected.'); });
 });
@@ -232,7 +243,7 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Full Data-Driven Physics Game</title>
+        <title>Deep Physics Simulation Engine</title>
         <style>
           body, html { margin: 0; overflow: hidden; font-family: Arial, sans-serif; user-select: none; background-color: #333; }
           #game-canvas { border: 1px solid black; cursor: crosshair; background-color: #000; }
@@ -279,25 +290,15 @@ app.get('/', (req, res) => {
                 context.fillStyle = '#000'; context.fillRect(0, 0, canvas.width, canvas.height);
                 context.translate(cameraX, cameraY); context.scale(zoom, zoom);
 
-                for (const [key, pixel] of localWorld.entries()) {
+                for (const [key, p] of localWorld.entries()) {
                     const [x, y] = key.split(',').map(Number);
-                    const def = ELEMENTS[pixel.type];
+                    const def = ELEMENTS[p.type];
                     if (def) {
-                        const temp = pixel.temperature;
-                        // For non-glowing elements, check temperature
-                        if (temp > AMBIENT_TEMP + 5 && def.state !== 'gas') {
-                             const heatRatio = Math.min((temp - AMBIENT_TEMP) / 1000, 1);
-                             let r,g,b;
-                             // Quick hex to rgb
-                             const hex = def.color.startsWith('rgba') ? '#888888' : def.color;
-                             r = parseInt(hex.slice(1,3), 16);
-                             g = parseInt(hex.slice(3,5), 16);
-                             b = parseInt(hex.slice(5,7), 16);
-
-                             r = Math.floor(r + (255 - r) * heatRatio);
-                             g = Math.floor(g + (120 - g) * heatRatio);
-                             b = Math.floor(b * (1 - heatRatio));
-                             context.fillStyle = \`rgb(\${r},\${g},\${b})\`;
+                        if (p.type === 'PHOT') {
+                            const r = (p.ctype >> 16) & 0xFF;
+                            const g = (p.ctype >> 8) & 0xFF;
+                            const b = p.ctype & 0xFF;
+                            context.fillStyle = \`rgb(\${r},\${g},\${b})\`;
                         } else {
                             context.fillStyle = def.color;
                         }
@@ -307,8 +308,12 @@ app.get('/', (req, res) => {
                 context.restore();
             };
 
-            function renderLoop() {
-                redrawCanvas();
+            let lastFrameTime = 0;
+            function renderLoop(time) {
+                if(time - lastFrameTime > 16) { // Cap rendering at ~60fps
+                    redrawCanvas();
+                    lastFrameTime = time;
+                }
                 requestAnimationFrame(renderLoop);
             }
             requestAnimationFrame(renderLoop);
@@ -359,7 +364,7 @@ app.get('/', (req, res) => {
                 e.preventDefault();
                 const worldPosBefore = toWorldCoords(e.offsetX, e.offsetY);
                 zoom *= Math.exp(-e.deltaY * 0.005);
-                zoom = Math.max(0.5, Math.min(20, zoom));
+                zoom = Math.max(0.5, Math.min(40, zoom));
                 cameraX = e.offsetX - worldPosBefore.x * zoom;
                 cameraY = e.offsetY - worldPosBefore.y * zoom;
             });
@@ -395,4 +400,4 @@ app.get('/', (req, res) => {
 
 http.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
-});
+});```
