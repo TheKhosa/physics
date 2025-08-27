@@ -6,18 +6,13 @@ const port = process.env.PORT || 3000;
 
 // --- SERVER-SIDE SIMULATION ---
 
-// The canonical world state
 const world = new Map();
 const getPixelKey = (x, y) => `${x},${y}`;
 
-// Particle class to allow for complex interactions
 class Particle {
     constructor(type) {
         this.type = type;
         this.updatedThisTick = false;
-        // Foundation for future complex interactions
-        // this.temperature = 20; 
-        // this.pressure = 1;
     }
 }
 
@@ -28,30 +23,22 @@ const setPixel = (x, y, particle, changes) => {
     } else {
         world.set(key, particle);
     }
-    // Track the change to broadcast to clients
     changes.push({ x, y, particle });
 };
 
 const getPixel = (x, y) => world.get(getPixelKey(x, y));
 
-// The main server-side physics loop
-const TICK_RATE = 20; // Updates per second
+const TICK_RATE = 20;
 setInterval(() => {
     const changes = [];
-    
-    // Reset update flags
     world.forEach(p => p.updatedThisTick = false);
-
-    // Use a copy of keys to avoid issues with modification during iteration
     const keys = Array.from(world.keys());
 
     for (const key of keys) {
         const [x, y] = key.split(',').map(Number);
         const pixel = getPixel(x, y);
-
         if (!pixel || pixel.updatedThisTick) continue;
 
-        // --- PHYSICS RULES ---
         if (pixel.type === 'sand') {
             const down = getPixel(x, y + 1);
             if (!down) {
@@ -86,25 +73,21 @@ setInterval(() => {
         }
     }
 
-    // Broadcast the collected changes to all clients
     if (changes.length > 0) {
         io.emit('worldUpdate', changes);
     }
 }, 1000 / TICK_RATE);
 
-// --- SERVER-SIDE NETWORKING ---
 io.on('connection', (socket) => {
-    console.log('A user connected.');
-    
-    // When a new user joins, send them the entire world state
+    console.log('[SERVER] A user connected.');
     const fullWorld = Array.from(world.entries()).map(([key, particle]) => {
         const [x, y] = key.split(',').map(Number);
         return { x, y, particle };
     });
     socket.emit('fullWorld', fullWorld);
 
-    // Listen for drawing actions from clients
     socket.on('clientDraw', (data) => {
+        console.log(`[SERVER] Received clientDraw event for element: ${data.element}`);
         const changes = [];
         const { x, y, radius, element } = data;
         for (let i = -radius; i <= radius; i++) {
@@ -112,25 +95,22 @@ io.on('connection', (socket) => {
                 if (Math.sqrt(i*i + j*j) <= radius) {
                     const newX = x + i;
                     const newY = y + j;
-                    if (!getPixel(newX, newY)) {
-                       setPixel(newX, newY, new Particle(element), changes);
-                    }
+                    // SIMPLIFIED LOGIC: Always allow drawing/overwriting.
+                    setPixel(newX, newY, new Particle(element), changes);
                 }
             }
         }
-        // Immediately broadcast newly drawn pixels so drawing feels responsive
         if (changes.length > 0) {
+            console.log(`[SERVER] Broadcasting worldUpdate with ${changes.length} changes.`);
             io.emit('worldUpdate', changes);
         }
     });
 
     socket.on('disconnect', () => {
-        console.log('User disconnected.');
+        console.log('[SERVER] User disconnected.');
     });
 });
 
-
-// --- CLIENT-SIDE HTML AND JAVASCRIPT ---
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -180,26 +160,23 @@ app.get('/', (req, res) => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
 
-            // --- Client-Side World State ---
             const localWorld = new Map();
             const getPixelKey = (x, y) => \`\${x},\${y}\`;
             let currentElement = 'sand';
             let brushSize = 3;
 
-            // --- Viewport State (Camera & Zoom) ---
             let cameraX = 0, cameraY = 0, zoom = 5;
             const MAX_ZOOM = 20, MIN_ZOOM = 0.5;
             let isPanning = false, lastPanX = 0, lastPanY = 0;
             let isDrawing = false;
             
-            // --- Coordinate Transformation ---
             const toWorldCoords = (screenX, screenY) => {
-                const worldX = Math.floor((screenX - cameraX) / zoom);
-                const worldY = Math.floor((screenY - cameraY) / zoom);
-                return { x: worldX, y: worldY };
+                return { 
+                    x: Math.floor((screenX - cameraX) / zoom),
+                    y: Math.floor((screenY - cameraY) / zoom)
+                };
             };
 
-            // --- Rendering ---
             const redrawCanvas = () => {
                 context.save();
                 context.clearRect(0, 0, canvas.width, canvas.height);
@@ -219,15 +196,12 @@ app.get('/', (req, res) => {
                 context.restore();
             };
 
-            // Main rendering loop (NO physics)
             function renderLoop() {
                 redrawCanvas();
                 requestAnimationFrame(renderLoop);
             }
-            // This line starts the rendering. It correctly calls the function above.
             requestAnimationFrame(renderLoop);
 
-            // --- Event Handlers ---
             elementPicker.addEventListener('change', (e) => currentElement = e.target.value);
             brushSizeSlider.addEventListener('input', (e) => brushSize = parseInt(e.target.value));
 
@@ -244,7 +218,7 @@ app.get('/', (req, res) => {
             const handleDrawing = (e) => {
                 if (!isDrawing) return;
                 const pos = toWorldCoords(e.offsetX, e.offsetY);
-                // Send DRAW INTENT to the server
+                console.log(\`[CLIENT] Sending clientDraw event at (\${pos.x}, \${pos.y})\`);
                 socket.emit('clientDraw', { 
                     x: pos.x, y: pos.y, 
                     radius: brushSize, 
@@ -275,9 +249,7 @@ app.get('/', (req, res) => {
             canvas.addEventListener('contextmenu', e => e.preventDefault());
             window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
 
-            // --- SOCKET LISTENERS to receive state from server ---
             socket.on('fullWorld', (fullWorld) => {
-                console.log('Receiving full world state...');
                 localWorld.clear();
                 for(const item of fullWorld) {
                     localWorld.set(getPixelKey(item.x, item.y), item.particle);
@@ -285,6 +257,7 @@ app.get('/', (req, res) => {
             });
 
             socket.on('worldUpdate', (changes) => {
+                console.log(\`[CLIENT] Received worldUpdate with \${changes.length} changes.\`);
                 for (const change of changes) {
                     const key = getPixelKey(change.x, change.y);
                     if (change.particle === null) {
@@ -302,5 +275,5 @@ app.get('/', (req, res) => {
 });
 
 http.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+  console.log(`[SERVER] Server is running on http://localhost:${port}`);
 });
