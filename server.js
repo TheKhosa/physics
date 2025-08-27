@@ -4,35 +4,37 @@ const http = require('http').Server(app);
 const io =require('socket.io')(http);
 const port = process.env.PORT || 3000;
 
+// --- CONSTANTS ---
+const AMBIENT_TEMP = 20;
+const MAX_TEMP = 10000;
+
 // --- 1. DATA-DRIVEN ELEMENT DEFINITIONS ---
-// Based on https://mrprocom.github.io/projects/tptreference/
 const ELEMENTS = {
+    // Special
     "NONE": { color: "#000000" },
-    "WALL": { 
-        name: "Wall", menu: "Solids", state: "solid", density: Infinity, color: "#888888", conductivity: 0.01 
-    },
-    "SAND": { 
-        name: "Sand", menu: "Powders", state: "powder", density: 1.5, color: "#c2b280", conductivity: 0.1 
-    },
-    "WATR": { 
-        name: "Water", menu: "Liquids", state: "liquid", density: 1, color: "#4466ff", conductivity: 0.8 
-    },
-    "OIL": {
-        name: "Oil", menu: "Liquids", state: "liquid", density: 0.8, color: "#8b4513", flammable: 150, conductivity: 0.3
-    },
-    "FIRE": {
-        name: "Fire", menu: "Energy", state: "gas", density: -0.5, color: "#ff8000", temperature: 1000, life: 50, flammable: 0
-    },
-    "PLNT": {
-        name: "Plant", menu: "Special", state: "solid", density: 1.2, color: "#00ab41", flammable: 120, conductivity: 0.2
-    },
-    "GAS": {
-        name: "Gas", menu: "Gases", state: "gas", density: -0.6, color: "#aaccaa", conductivity: 0.1
-    },
-    "GLAS": {
-        name: "Glass", menu: "Solids", state: "solid", density: 2.5, color: "#b0d0d0", conductivity: 0.05, breakable: 2
-    }
-    // Add more elements here by just defining their properties!
+    "ERAS": { name: "Eraser", menu: "Tools" },
+    
+    // Solids
+    "WALL": { name: "Wall", menu: "Solids", state: "solid", density: Infinity, color: "#888", conductivity: 0.01, heatConduct: 5 },
+    "GLAS": { name: "Glass", menu: "Solids", state: "solid", density: 2.5, color: "rgba(180, 210, 210, 0.3)", conductivity: 0.05, heatConduct: 2, breakable: 10 },
+    "PLNT": { name: "Plant", menu: "Solids", state: "solid", density: 1.2, color: "#00ab41", conductivity: 0.2, heatConduct: 15, flammable: 80 },
+    
+    // Powders
+    "SAND": { name: "Sand", menu: "Powders", state: "powder", density: 1.5, color: "#c2b280", conductivity: 0.1, heatConduct: 20 },
+    "STNE": { name: "Stone", menu: "Powders", state: "powder", density: 2.4, color: "#8c8c8c", conductivity: 0.05, heatConduct: 8 },
+    "COAL": { name: "Coal", menu: "Powders", state: "powder", density: 1.1, color: "#303030", conductivity: 0.1, heatConduct: 25, flammable: 250 },
+    
+    // Liquids
+    "WATR": { name: "Water", menu: "Liquids", state: "liquid", density: 1, color: "#4466ff", conductivity: 0.8, heatConduct: 90, boilPoint: 100, boilInto: "STEA" },
+    "OIL": { name: "Oil", menu: "Liquids", state: "liquid", density: 0.8, color: "#8b4513", conductivity: 0.3, heatConduct: 40, flammable: 150 },
+    "LAVA": { name: "Lava", menu: "Liquids", state: "liquid", density: 2.8, color: "#ff4500", temperature: 1200, conductivity: 0.5, heatConduct: 60 },
+
+    // Gases
+    "GAS": { name: "Gas", menu: "Gases", state: "gas", density: -0.6, color: "#aaccaa", conductivity: 0.1, heatConduct: 20 },
+    "STEA": { name: "Steam", menu: "Gases", state: "gas", density: -0.5, color: "#a0a0a0", temperature: 110, conductivity: 0.2, heatConduct: 30 },
+
+    // Energy
+    "FIRE": { name: "Fire", menu: "Energy", state: "gas", density: -0.5, color: "#ff8000", temperature: 1000, life: 50, flammable: 0 }
 };
 
 // --- 2. ADVANCED PARTICLE & WORLD ENGINE ---
@@ -44,11 +46,12 @@ class Particle {
         this.type = type;
         this.vx = 0;
         this.vy = 0;
-        this.temperature = 20; // Room temp
         
-        // Custom properties used by specific elements
-        this.props = {}; 
-        if(ELEMENTS[type].life) this.props.life = ELEMENTS[type].life;
+        const def = ELEMENTS[type];
+        this.temperature = def.temperature || AMBIENT_TEMP;
+        
+        this.props = {};
+        if(def.life) this.props.life = def.life + Math.floor(Math.random()*10);
     }
 }
 
@@ -61,9 +64,7 @@ const setPixel = (x, y, particle, changes) => {
 
 const getPixel = (x, y) => world.get(getPixelKey(x, y));
 
-const swapPixels = (x1, y1, x2, y2, changes) => {
-    const p1 = getPixel(x1, y1);
-    const p2 = getPixel(x2, y2);
+const swapPixels = (x1, y1, p1, x2, y2, p2, changes) => {
     setPixel(x1, y1, p2, changes);
     setPixel(x2, y2, p1, changes);
 }
@@ -74,62 +75,118 @@ setInterval(() => {
     const changes = [];
     const keys = Array.from(world.keys());
 
-    // --- PHYSICS PHASES ---
+    // --- PHASE 1: ELEMENT-SPECIFIC UPDATES (before movement) ---
     for (const key of keys) {
         const [x, y] = key.split(',').map(Number);
         const p = getPixel(x, y);
         if (!p) continue;
-
         const def = ELEMENTS[p.type];
-        if (!def) continue;
 
-        // -- Gravity --
-        if (def.state === "powder" || def.state === "liquid") {
-            p.vy += 0.1; // Apply gravity
-        }
-
-        // -- Element-specific updates (before movement) --
         if (p.type === 'FIRE') {
             p.props.life--;
-            if(p.props.life <= 0) {
+            if (p.props.life <= 0 || Math.random() < 0.05) {
                 setPixel(x, y, null, changes);
                 continue;
             }
         }
         if (p.type === 'PLNT') {
-            if(getPixel(x,y+1)?.type === 'WATR' && Math.random() < 0.01) {
-                if(!getPixel(x,y-1)) setPixel(x, y-1, new Particle('PLNT'), changes);
+            // Grow if touching water, but not into water
+            const neighbor = getPixel(x, y + 1);
+            if(neighbor && neighbor.type === 'WATR' && Math.random() < 0.01) {
+                const target = getPixel(x, y - 1);
+                if (!target) setPixel(x, y - 1, new Particle('PLNT'), changes);
             }
         }
+    }
 
-        // -- Movement & Swapping --
-        if (p.vx !== 0 || p.vy !== 0) {
-            const nextX = Math.round(x + p.vx);
-            const nextY = Math.round(y + p.vy);
-            
-            if (nextX === x && nextY === y) continue;
+    // --- PHASE 2: GRAVITY & MOVEMENT ---
+    for (const key of keys) {
+        const [x, y] = key.split(',').map(Number);
+        const p = getPixel(x, y);
+        if (!p) continue;
+        const def = ELEMENTS[p.type];
 
-            const target = getPixel(nextX, nextY);
-            if (!target) {
-                setPixel(x, y, null); // Move from old spot
-                setPixel(nextX, nextY, p); // Move to new spot
-                // Add both to changes
-                changes.push({x,y,particle:null}, {x:nextX, y:nextY, particle:p});
+        if (def.state === "powder" || def.state === "liquid") {
+            const down = getPixel(x, y + 1);
+            if (!down) {
+                swapPixels(x, y, p, x, y + 1, down, changes);
             } else {
-                const targetDef = ELEMENTS[target.type];
-                if (def.density > targetDef.density) {
-                    swapPixels(x, y, nextX, nextY, changes);
+                const downDef = ELEMENTS[down.type];
+                if (def.density > downDef.density) {
+                    swapPixels(x, y, p, x, y + 1, down, changes);
+                } else if (def.state === "liquid") { // Liquids spread
+                    const dir = Math.random() < 0.5 ? 1 : -1;
+                    const side = getPixel(x + dir, y);
+                    if (!side) {
+                        swapPixels(x, y, p, x + dir, y, side, changes);
+                    }
+                }
+            }
+        } else if (def.state === "gas") {
+            const up = getPixel(x, y - 1);
+            if (!up) {
+                swapPixels(x, y, p, x, y - 1, up, changes);
+            } else {
+                const upDef = ELEMENTS[up.type];
+                if (def.density > upDef.density) {
+                    swapPixels(x, y, p, x, y - 1, up, changes);
                 } else {
-                    // Collision
-                    p.vx *= -0.5;
-                    p.vy *= -0.5;
+                    const dir = Math.random() < 0.5 ? 1 : -1;
+                    const side = getPixel(x + dir, y);
+                    if (!side) {
+                        swapPixels(x, y, p, x + dir, y, side, changes);
+                    }
                 }
             }
         }
     }
-    
-    // --- HEAT & STATE CHANGE PHASE ---
-    // (This can be re-added here, using the conductivity property)
+
+    // --- PHASE 3: HEAT TRANSFER ---
+    const tempChanges = new Map();
+    for (const key of keys) {
+        const [x, y] = key.split(',').map(Number);
+        const p = getPixel(x, y);
+        if (!p) continue;
+
+        let totalTempDelta = 0;
+        const def = ELEMENTS[p.type];
+        
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                const neighbor = getPixel(x + dx, y + dy);
+                if (neighbor) {
+                    const neighborDef = ELEMENTS[neighbor.type];
+                    const avgConductivity = (def.heatConduct + neighborDef.heatConduct) / 2;
+                    totalTempDelta += (neighbor.temperature - p.temperature) * (avgConductivity / 200);
+                }
+            }
+        }
+        // Cooling to ambient
+        totalTempDelta += (AMBIENT_TEMP - p.temperature) * (def.conductivity / 10);
+        tempChanges.set(key, totalTempDelta);
+    }
+    for (const [key, delta] of tempChanges.entries()) {
+        const p = world.get(key);
+        if(p) {
+            p.temperature = Math.min(MAX_TEMP, p.temperature + delta);
+        }
+    }
+
+    // --- PHASE 4: STATE CHANGES ---
+    for (const key of keys) {
+        const [x, y] = key.split(',').map(Number);
+        const p = getPixel(x, y);
+        if (!p) continue;
+        const def = ELEMENTS[p.type];
+
+        if (def.boilPoint && p.temperature >= def.boilPoint) {
+            setPixel(x, y, new Particle(def.boilInto), changes);
+        }
+        else if (def.flammable && p.temperature >= def.flammable) {
+            setPixel(x, y, new Particle('FIRE'), changes);
+        }
+    }
 
     if (changes.length > 0) {
         io.emit('worldUpdate', changes);
@@ -140,12 +197,10 @@ setInterval(() => {
 // --- 4. NETWORKING & CLIENT HOSTING ---
 io.on('connection', (socket) => {
     console.log('A user connected.');
-    // Send the entire ELEMENT definition object to the new client
     socket.emit('elementsDefinition', ELEMENTS);
     
     const fullWorld = Array.from(world.entries()).map(([key, particle]) => {
-        const [x, y] = key.split(',').map(Number);
-        return { x, y, particle };
+        const [x, y] = key.split(',').map(Number); return { x, y, particle };
     });
     socket.emit('fullWorld', fullWorld);
 
@@ -157,7 +212,7 @@ io.on('connection', (socket) => {
                 if (Math.sqrt(i*i + j*j) <= radius) {
                     const newX = x + i;
                     const newY = y + j;
-                    if (element === 'eraser') {
+                    if (element === 'ERAS') {
                         if (getPixel(newX, newY)) setPixel(newX, newY, null, changes);
                     } else {
                         setPixel(newX, newY, new Particle(element), changes);
@@ -177,10 +232,10 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Data-Driven Physics Game</title>
+        <title>Full Data-Driven Physics Game</title>
         <style>
           body, html { margin: 0; overflow: hidden; font-family: Arial, sans-serif; user-select: none; background-color: #333; }
-          #game-canvas { border: 1px solid black; cursor: crosshair; background-color: #222; }
+          #game-canvas { border: 1px solid black; cursor: crosshair; background-color: #000; }
           #controls {
             position: fixed; top: 10px; left: 10px; padding: 8px;
             background-color: rgba(255, 255, 255, 0.9); border-radius: 5px;
@@ -206,7 +261,7 @@ app.get('/', (req, res) => {
             const brushSizeSlider = document.getElementById('brushSize');
             canvas.width = window.innerWidth; canvas.height = window.innerHeight;
 
-            let ELEMENTS = {}; // This will be populated by the server
+            let ELEMENTS = {};
             const localWorld = new Map();
             const getPixelKey = (x, y) => \`\${x},\${y}\`;
             let currentElement = 'SAND'; let brushSize = 3;
@@ -221,14 +276,31 @@ app.get('/', (req, res) => {
             const redrawCanvas = () => {
                 context.save();
                 context.clearRect(0, 0, canvas.width, canvas.height);
-                context.fillStyle = '#222'; context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = '#000'; context.fillRect(0, 0, canvas.width, canvas.height);
                 context.translate(cameraX, cameraY); context.scale(zoom, zoom);
 
                 for (const [key, pixel] of localWorld.entries()) {
                     const [x, y] = key.split(',').map(Number);
                     const def = ELEMENTS[pixel.type];
                     if (def) {
-                        context.fillStyle = def.color;
+                        const temp = pixel.temperature;
+                        // For non-glowing elements, check temperature
+                        if (temp > AMBIENT_TEMP + 5 && def.state !== 'gas') {
+                             const heatRatio = Math.min((temp - AMBIENT_TEMP) / 1000, 1);
+                             let r,g,b;
+                             // Quick hex to rgb
+                             const hex = def.color.startsWith('rgba') ? '#888888' : def.color;
+                             r = parseInt(hex.slice(1,3), 16);
+                             g = parseInt(hex.slice(3,5), 16);
+                             b = parseInt(hex.slice(5,7), 16);
+
+                             r = Math.floor(r + (255 - r) * heatRatio);
+                             g = Math.floor(g + (120 - g) * heatRatio);
+                             b = Math.floor(b * (1 - heatRatio));
+                             context.fillStyle = \`rgb(\${r},\${g},\${b})\`;
+                        } else {
+                            context.fillStyle = def.color;
+                        }
                         context.fillRect(x, y, 1, 1);
                     }
                 }
@@ -243,9 +315,7 @@ app.get('/', (req, res) => {
 
             // --- SOCKET LISTENERS ---
             socket.on('elementsDefinition', (definitions) => {
-                console.log("Received element definitions from server.");
                 ELEMENTS = definitions;
-                // --- DYNAMICALLY BUILD THE UI ---
                 elementPicker.innerHTML = '';
                 const menus = {};
                 for(const key in ELEMENTS) {
@@ -258,7 +328,7 @@ app.get('/', (req, res) => {
                 for(const menuName in menus) {
                     const optgroup = document.createElement('optgroup');
                     optgroup.label = menuName;
-                    menus[menuName].forEach(el => {
+                    menus[menuName].sort((a,b) => a.name.localeCompare(b.name)).forEach(el => {
                         const option = document.createElement('option');
                         option.value = el.key;
                         option.textContent = el.name;
@@ -266,12 +336,6 @@ app.get('/', (req, res) => {
                     });
                     elementPicker.appendChild(optgroup);
                 }
-                const eraserOpt = document.createElement('option');
-                eraserOpt.value = 'eraser';
-                eraserOpt.textContent = 'ERASER';
-                eraserOpt.style.color = 'red';
-                elementPicker.appendChild(eraserOpt);
-
                 currentElement = elementPicker.value;
             });
 
@@ -290,7 +354,6 @@ app.get('/', (req, res) => {
 
             // --- EVENT HANDLERS ---
             elementPicker.addEventListener('change', (e) => currentElement = e.target.value);
-            // (Other event handlers like mouse, wheel, etc. are unchanged)
             brushSizeSlider.addEventListener('input', (e) => brushSize = parseInt(e.target.value));
             canvas.addEventListener('wheel', (e) => {
                 e.preventDefault();
