@@ -224,6 +224,7 @@ app.get('/', (req, res) => {
                 redrawCanvas();
                 requestAnimationFrame(renderLoop);
             }
+            // This line starts the rendering. It correctly calls the function above.
             requestAnimationFrame(renderLoop);
 
             // --- Event Handlers ---
